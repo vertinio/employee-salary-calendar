@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Darek Work Calendar</title>
+  <style>
+    body {
+      font-family: 'Roboto', sans-serif;
+      background: #f9f9f9;
+      color: #212121;
+      margin: 0;
+      padding: 2rem;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    .controls {
+      max-width: 600px;
+      margin: 0 auto 2rem;
+      background: white;
+      padding: 1rem 2rem;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+    }
+    .calendar-container {
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+    .month {
+      background: white;
+      border-radius: 8px;
+      padding: 1rem;
+      width: 100%;
+      max-width: 900px;
+      margin: 0 auto;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .calendar {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+      margin-top: 0.5rem;
+    }
+    .weekday, .day {
+      text-align: center;
+      padding: 0.6rem 0;
+      border-radius: 4px;
+    }
+    .weekday {
+      background: #e3f2fd;
+      color: #1565c0;
+      font-weight: 500;
+    }
+    .day {
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .day:hover {
+      background: #f5f5f5;
+    }
+    .workday {
+      background: #4caf50;
+      color: white;
+    }
+    .modified-hours {
+      background: #c8e6c9 !important;
+      color: #212121;
+    }
+    .holiday {
+      background: #ffeb3b;
+      color: #000;
+    }
+    .paid-day:not(.workday) {
+      border: 2px solid #2196f3;
+    }
+    .pay-display {
+      margin-top: 1rem;
+      background: #f1f8e9;
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+      font-size: 0.95rem;
+    }
+    .month-footer {
+      text-align: right;
+      margin-top: 1rem;
+    }
+    .month-footer button {
+      background: #f44336;
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .popup {
+      position: fixed;
+      right: -400px;
+      top: 0;
+      height: 100%;
+      width: 320px;
+      background: #fff;
+      box-shadow: -2px 0 10px rgba(0,0,0,0.15);
+      padding: 2rem;
+      transition: right 0.3s ease;
+      z-index: 1000;
+    }
+    .popup.show {
+      right: 0;
+    }
+    .popup h3 {
+      margin-top: 0;
+    }
+    .popup input[type="number"] {
+      width: 100%;
+      padding: 0.5rem;
+      margin-bottom: 1rem;
+      font-size: 1rem;
+    }
+    .popup label {
+      display: block;
+      margin: 0.5rem 0;
+      font-weight: 500;
+    }
+    .popup button {
+      background: #1976d2;
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
+      margin-right: 0.5rem;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Darek Work Calendar (Apr 2025 – Mar 2026)</h1>
+  <div class="controls">
+    <label>Hourly rate (£): <input type="number" id="rate" value="12.21" step="0.01"></label>
+    <label><input type="checkbox" id="pension-toggle" checked /> Include Pension Contributions</label>
+  </div>
+  <div id="calendar-root" class="calendar-container"></div>
+  <div id="popup" class="popup">
+    <h3>Edit Day</h3>
+    <label>Hours:</label>
+    <input type="number" id="popup-hours" min="0" step="0.5" />
+    <label><input type="checkbox" id="popup-paid" /> Paid Day</label><br />
+    <button onclick="savePopup()">Save</button>
+    <button onclick="closePopup()">Cancel</button>
+  </div>
+<script>
+  const months = [
+    "April 2025", "May 2025", "June 2025", "July 2025", "August 2025",
+    "September 2025", "October 2025", "November 2025", "December 2025",
+    "January 2026", "February 2026", "March 2026"
+  ];
+
+  const publicHolidays = {
+    "April 2025": [18, 21],
+    "May 2025": [5, 26],
+    "August 2025": [25],
+    "December 2025": [25, 26],
+    "January 2026": [1],
+    "March 2026": [17]
+  };
+
+  const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  let hourlyRate = 12.21;
+  const calendarRoot = document.getElementById("calendar-root");
+  let selectedCell = null;
+
+  document.getElementById("rate").addEventListener("input", e => {
+    hourlyRate = parseFloat(e.target.value);
+    updateAllMonths();
+  });
+
+  document.getElementById("pension-toggle").addEventListener("change", () => {
+    updateAllMonths();
+  });
+
+  function createCalendar(monthYear) {
+    const [monthName, year] = monthYear.split(" ");
+    const monthIndex = new Date(`${monthName} 1, ${year}`).getMonth();
+    const totalDays = new Date(year, monthIndex + 1, 0).getDate();
+    const startDay = (new Date(year, monthIndex, 1).getDay() + 6) % 7;
+
+    const container = document.createElement("div");
+    container.className = "month";
+    container.innerHTML = `<h2>${monthYear}</h2>`;
+
+    const cal = document.createElement("div");
+    cal.className = "calendar";
+
+    weekdays.forEach(d => {
+      const el = document.createElement("div");
+      el.className = "weekday";
+      el.textContent = d;
+      cal.appendChild(el);
+    });
+
+    for (let i = 0; i < startDay; i++) cal.appendChild(document.createElement("div"));
+
+    for (let d = 1; d <= totalDays; d++) {
+      const cell = document.createElement("div");
+      const date = new Date(year, monthIndex, d);
+      const dow = date.getDay();
+      const isWorkday = dow >= 1 && dow <= 5;
+      const isHoliday = publicHolidays[monthYear]?.includes(d);
+
+      cell.className = "day";
+      if (isWorkday && !isHoliday) cell.classList.add("workday");
+      if (isHoliday) {
+        cell.classList.add("holiday", "paid-day");
+        cell.dataset.paid = "true";
+        cell.dataset.hours = "8";
+        cell.classList.remove("workday");
+      } else {
+        cell.dataset.hours = isWorkday ? "8" : "0";
+        cell.dataset.paid = "false";
+      }
+
+      cell.textContent = d;
+      cell.addEventListener("dblclick", () => {
+        cell.dataset.hours = "0";
+        cell.dataset.paid = "false";
+        cell.classList.remove("workday", "modified-hours", "paid-day");
+        updateAllMonths();
+      });
+      cell.addEventListener("click", () => openPopup(cell));
+      cal.appendChild(cell);
+    }
+
+    const summary = document.createElement("div");
+    summary.className = "pay-display";
+
+    const footer = document.createElement("div");
+    footer.className = "month-footer";
+    footer.innerHTML = `<button onclick="location.reload()">Reset Month</button>`;
+
+    container.appendChild(cal);
+    container.appendChild(summary);
+    container.appendChild(footer);
+    calendarRoot.appendChild(container);
+  }
+
+  function openPopup(cell) {
+    selectedCell = cell;
+    document.getElementById("popup-hours").value = cell.dataset.hours;
+    document.getElementById("popup-paid").checked = cell.dataset.paid === "true";
+    document.getElementById("popup").classList.add("show");
+  }
+
+  function closePopup() {
+    document.getElementById("popup").classList.remove("show");
+  }
+
+  function savePopup() {
+    const hours = parseFloat(document.getElementById("popup-hours").value);
+    const paid = document.getElementById("popup-paid").checked;
+
+    selectedCell.dataset.hours = hours;
+    selectedCell.dataset.paid = paid;
+    selectedCell.classList.toggle("modified-hours", hours !== 8);
+    selectedCell.classList.toggle("paid-day", paid);
+
+    closePopup();
+    updateAllMonths();
+  }
+
+  function updateAllMonths() {
+    let totalPublicHolidaysUsed = 0;
+    document.querySelectorAll(".month").forEach(container => {
+      totalPublicHolidaysUsed = updateSummary(container, totalPublicHolidaysUsed);
+    });
+  }
+
+  function updateSummary(container, holidaysSoFar = 0) {
+    const cells = container.querySelectorAll(".day");
+    let total = 0, paidDays = 0, holidaysTaken = 0;
+
+    cells.forEach(cell => {
+      const hours = parseFloat(cell.dataset.hours || 0);
+      total += hours;
+      if (cell.dataset.paid === "true") paidDays++;
+      if (cell.classList.contains("holiday")) holidaysTaken++;
+    });
+
+    const grossNum = total * hourlyRate;
+    const gross = grossNum.toFixed(2);
+    const taxFreeAllowance = 1047.5;
+    const taxable = Math.max(0, grossNum - taxFreeAllowance);
+    const tax = taxable * 0.2;
+    const niThreshold = 1048;
+    const ni = grossNum > niThreshold ? (grossNum - niThreshold) * 0.138 : 0;
+    const employeeNI = grossNum > niThreshold ? (grossNum - niThreshold) * 0.12 : 0;
+    const includePension = document.getElementById("pension-toggle")?.checked ?? true;
+    const pensionEmployee = includePension ? grossNum * 0.05 : 0;
+    const pensionEmployer = includePension ? grossNum * 0.03 : 0;
+    const net = grossNum - tax - employeeNI - pensionEmployee;
+    const totalEmployerCost = grossNum + ni + pensionEmployer;
+
+    const leaveDaysUsed = paidDays - holidaysTaken;
+    const leaveDaysLeft = 20 - leaveDaysUsed;
+    const publicHolidaysLeft = Math.max(0, 8 - (holidaysSoFar + holidaysTaken));
+
+    const summary = container.querySelector(".pay-display");
+    summary.innerHTML = `
+      <strong>Total Hours:</strong> ${total} (${(total / 8).toFixed(1)} days)<br/>
+      <strong>Public Holidays taken:</strong> ${holidaysTaken} (${publicHolidaysLeft} left)<br/>
+      <strong>Leave days taken:</strong> ${leaveDaysUsed} (${leaveDaysLeft} left)<br/>
+      <strong>Salary:</strong> £${gross}<br/>
+      <strong>Net pay:</strong> £${net.toFixed(2)}<br/>
+      <strong>Tax (20%):</strong> £${tax.toFixed(2)}<br/>
+      <strong>Employee NI (12%):</strong> £${employeeNI.toFixed(2)}<br/>
+      <strong>Pension (Employee 5%):</strong> £${pensionEmployee.toFixed(2)}<br/>
+      <strong>Pension (Employer 3%):</strong> £${pensionEmployer.toFixed(2)}<br/>
+      <strong>Employer NI (13.8%):</strong> £${ni.toFixed(2)}<br/>
+      <strong>Total Employer Cost:</strong> £${totalEmployerCost.toFixed(2)}
+    `;
+
+    return holidaysSoFar + holidaysTaken;
+  }
+
+  months.forEach(createCalendar);
+  updateAllMonths();
+</script>
+</body>
+</html>
