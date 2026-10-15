@@ -1,335 +1,372 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Darek Work Calendar</title>
-  <style>
-    body {
-      font-family: 'Roboto', sans-serif;
-      background: #f9f9f9;
-      color: #212121;
-      margin: 0;
-      padding: 2rem;
-    }
-    h1 {
-      text-align: center;
-      margin-bottom: 2rem;
-    }
-    .controls {
-      max-width: 600px;
-      margin: 0 auto 2rem;
-      background: white;
-      padding: 1rem 2rem;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      display: flex;
-      justify-content: center;
-      gap: 1rem;
-    }
-    .calendar-container {
-      display: flex;
-      flex-direction: column;
-      gap: 2rem;
-    }
-    .month {
-      background: white;
-      border-radius: 8px;
-      padding: 1rem;
-      width: 100%;
-      max-width: 900px;
-      margin: 0 auto;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-    .calendar {
-      display: grid;
-      grid-template-columns: repeat(7, 1fr);
-      gap: 4px;
-      margin-top: 0.5rem;
-    }
-    .weekday, .day {
-      text-align: center;
-      padding: 0.6rem 0;
-      border-radius: 4px;
-    }
-    .weekday {
-      background: #e3f2fd;
-      color: #1565c0;
-      font-weight: 500;
-    }
-    .day {
-      background: #fff;
-      border: 1px solid #e0e0e0;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-    .day:hover {
-      background: #f5f5f5;
-    }
-    .workday {
-      background: #4caf50;
-      color: white;
-    }
-    .modified-hours {
-      background: #c8e6c9 !important;
-      color: #212121;
-    }
-    .holiday {
-      background: #ffeb3b;
-      color: #000;
-    }
-    .paid-day:not(.workday) {
-      border: 2px solid #2196f3;
-    }
-    .pay-display {
-      margin-top: 1rem;
-      background: #f1f8e9;
-      padding: 0.75rem 1rem;
-      border-radius: 4px;
-      font-size: 0.95rem;
-    }
-    .month-footer {
-      text-align: right;
-      margin-top: 1rem;
-    }
-    .month-footer button {
-      background: #f44336;
-      color: white;
-      border: none;
-      padding: 0.5rem 1rem;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    .popup {
-      position: fixed;
-      right: -400px;
-      top: 0;
-      height: 100%;
-      width: 320px;
-      background: #fff;
-      box-shadow: -2px 0 10px rgba(0,0,0,0.15);
-      padding: 2rem;
-      transition: right 0.3s ease;
-      z-index: 1000;
-    }
-    .popup.show {
-      right: 0;
-    }
-    .popup h3 {
-      margin-top: 0;
-    }
-    .popup input[type="number"] {
-      width: 100%;
-      padding: 0.5rem;
-      margin-bottom: 1rem;
-      font-size: 1rem;
-    }
-    .popup label {
-      display: block;
-      margin: 0.5rem 0;
-      font-weight: 500;
-    }
-    .popup button {
-      background: #1976d2;
-      color: white;
-      border: none;
-      padding: 0.5rem 1rem;
-      border-radius: 4px;
-      margin-right: 0.5rem;
-      cursor: pointer;
-    }
-  </style>
-</head>
-<body>
-  <h1>Darek Work Calendar (Apr 2025 – Mar 2026)</h1>
-  <div class="controls">
-    <label>Hourly rate (£): <input type="number" id="rate" value="12.21" step="0.01"></label>
-    <label><input type="checkbox" id="pension-toggle" checked /> Include Pension Contributions</label>
-  </div>
-  <div id="calendar-root" class="calendar-container"></div>
-  <div id="popup" class="popup">
-    <h3>Edit Day</h3>
-    <label>Hours:</label>
-    <input type="number" id="popup-hours" min="0" step="0.5" />
-    <label><input type="checkbox" id="popup-paid" /> Paid Day</label><br />
-    <button onclick="savePopup()">Save</button>
-    <button onclick="closePopup()">Cancel</button>
-  </div>
-<script>
-  const months = [
-    "April 2025", "May 2025", "June 2025", "July 2025", "August 2025",
-    "September 2025", "October 2025", "November 2025", "December 2025",
-    "January 2026", "February 2026", "March 2026"
-  ];
-
-  const publicHolidays = {
-    "April 2025": [18, 21],
-    "May 2025": [5, 26],
-    "August 2025": [25],
-    "December 2025": [25, 26],
-    "January 2026": [1],
-    "March 2026": [17]
-  };
-
-  const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  let hourlyRate = 12.21;
-  const calendarRoot = document.getElementById("calendar-root");
-  let selectedCell = null;
-
-  document.getElementById("rate").addEventListener("input", e => {
-    hourlyRate = parseFloat(e.target.value);
-    updateAllMonths();
-  });
-
-  document.getElementById("pension-toggle").addEventListener("change", () => {
-    updateAllMonths();
-  });
-
-  function createCalendar(monthYear) {
-    const [monthName, year] = monthYear.split(" ");
-    const monthIndex = new Date(`${monthName} 1, ${year}`).getMonth();
-    const totalDays = new Date(year, monthIndex + 1, 0).getDate();
-    const startDay = (new Date(year, monthIndex, 1).getDay() + 6) % 7;
-
-    const container = document.createElement("div");
-    container.className = "month";
-    container.innerHTML = `<h2>${monthYear}</h2>`;
-
-    const cal = document.createElement("div");
-    cal.className = "calendar";
-
-    weekdays.forEach(d => {
-      const el = document.createElement("div");
-      el.className = "weekday";
-      el.textContent = d;
-      cal.appendChild(el);
-    });
-
-    for (let i = 0; i < startDay; i++) cal.appendChild(document.createElement("div"));
-
-    for (let d = 1; d <= totalDays; d++) {
-      const cell = document.createElement("div");
-      const date = new Date(year, monthIndex, d);
-      const dow = date.getDay();
-      const isWorkday = dow >= 1 && dow <= 5;
-      const isHoliday = publicHolidays[monthYear]?.includes(d);
-
-      cell.className = "day";
-      if (isWorkday && !isHoliday) cell.classList.add("workday");
-      if (isHoliday) {
-        cell.classList.add("holiday", "paid-day");
-        cell.dataset.paid = "true";
-        cell.dataset.hours = "8";
-        cell.classList.remove("workday");
-      } else {
-        cell.dataset.hours = isWorkday ? "8" : "0";
-        cell.dataset.paid = "false";
-      }
-
-      cell.textContent = d;
-      cell.addEventListener("dblclick", () => {
-        cell.dataset.hours = "0";
-        cell.dataset.paid = "false";
-        cell.classList.remove("workday", "modified-hours", "paid-day");
-        updateAllMonths();
-      });
-      cell.addEventListener("click", () => openPopup(cell));
-      cal.appendChild(cell);
-    }
-
-    const summary = document.createElement("div");
-    summary.className = "pay-display";
-
-    const footer = document.createElement("div");
-    footer.className = "month-footer";
-    footer.innerHTML = `<button onclick="location.reload()">Reset Month</button>`;
-
-    container.appendChild(cal);
-    container.appendChild(summary);
-    container.appendChild(footer);
-    calendarRoot.appendChild(container);
-  }
-
-  function openPopup(cell) {
-    selectedCell = cell;
-    document.getElementById("popup-hours").value = cell.dataset.hours;
-    document.getElementById("popup-paid").checked = cell.dataset.paid === "true";
-    document.getElementById("popup").classList.add("show");
-  }
-
-  function closePopup() {
-    document.getElementById("popup").classList.remove("show");
-  }
-
-  function savePopup() {
-    const hours = parseFloat(document.getElementById("popup-hours").value);
-    const paid = document.getElementById("popup-paid").checked;
-
-    selectedCell.dataset.hours = hours;
-    selectedCell.dataset.paid = paid;
-    selectedCell.classList.toggle("modified-hours", hours !== 8);
-    selectedCell.classList.toggle("paid-day", paid);
-
-    closePopup();
-    updateAllMonths();
-  }
-
-  function updateAllMonths() {
-    let totalPublicHolidaysUsed = 0;
-    document.querySelectorAll(".month").forEach(container => {
-      totalPublicHolidaysUsed = updateSummary(container, totalPublicHolidaysUsed);
-    });
-  }
-
-  function updateSummary(container, holidaysSoFar = 0) {
-    const cells = container.querySelectorAll(".day");
-    let total = 0, paidDays = 0, holidaysTaken = 0;
-
-    cells.forEach(cell => {
-      const hours = parseFloat(cell.dataset.hours || 0);
-      total += hours;
-      if (cell.dataset.paid === "true") paidDays++;
-      if (cell.classList.contains("holiday")) holidaysTaken++;
-    });
-
-    const grossNum = total * hourlyRate;
-    const gross = grossNum.toFixed(2);
-    const taxFreeAllowance = 1047.5;
-    const taxable = Math.max(0, grossNum - taxFreeAllowance);
-    const tax = taxable * 0.2;
-    const niThreshold = 1048;
-    const ni = grossNum > niThreshold ? (grossNum - niThreshold) * 0.138 : 0;
-    const employeeNI = grossNum > niThreshold ? (grossNum - niThreshold) * 0.12 : 0;
-    const includePension = document.getElementById("pension-toggle")?.checked ?? true;
-    const pensionEmployee = includePension ? grossNum * 0.05 : 0;
-    const pensionEmployer = includePension ? grossNum * 0.03 : 0;
-    const net = grossNum - tax - employeeNI - pensionEmployee;
-    const totalEmployerCost = grossNum + ni + pensionEmployer;
-
-    const leaveDaysUsed = paidDays - holidaysTaken;
-    const leaveDaysLeft = 20 - leaveDaysUsed;
-    const publicHolidaysLeft = Math.max(0, 8 - (holidaysSoFar + holidaysTaken));
-
-    const summary = container.querySelector(".pay-display");
-    summary.innerHTML = `
-      <strong>Total Hours:</strong> ${total} (${(total / 8).toFixed(1)} days)<br/>
-      <strong>Public Holidays taken:</strong> ${holidaysTaken} (${publicHolidaysLeft} left)<br/>
-      <strong>Leave days taken:</strong> ${leaveDaysUsed} (${leaveDaysLeft} left)<br/>
-      <strong>Salary:</strong> £${gross}<br/>
-      <strong>Net pay:</strong> £${net.toFixed(2)}<br/>
-      <strong>Tax (20%):</strong> £${tax.toFixed(2)}<br/>
-      <strong>Employee NI (12%):</strong> £${employeeNI.toFixed(2)}<br/>
-      <strong>Pension (Employee 5%):</strong> £${pensionEmployee.toFixed(2)}<br/>
-      <strong>Pension (Employer 3%):</strong> £${pensionEmployer.toFixed(2)}<br/>
-      <strong>Employer NI (13.8%):</strong> £${ni.toFixed(2)}<br/>
-      <strong>Total Employer Cost:</strong> £${totalEmployerCost.toFixed(2)}
-    `;
-
-    return holidaysSoFar + holidaysTaken;
-  }
-
-  months.forEach(createCalendar);
-  updateAllMonths();
-</script>
-</body>
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Plan UK hourly pay, employee costs and annual leave with a saved work calendar."
+    />
+    <title>UK Salary &amp; Work Planner</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="bank-holidays.js"></script>
+    <script defer src="calculator.js"></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">PAY &amp; PEOPLE</p>
+        <h1>Salary &amp; Work Planner</h1>
+        <p class="subtitle">
+          A clearer view of working hours, take-home pay and the cost of your
+          team.
+        </p>
+      </div>
+      <span class="badge">UK · Monthly estimates</span>
+    </header>
+    <main>
+      <section class="panel toolbar" aria-label="Employee and payroll year">
+        <label>Employee<select id="employee"></select></label>
+        <button id="add-employee" type="button">Add employee</button>
+        <label
+          >Payroll year<select id="year">
+            <option value="2026">2026/27 · Apr–Mar</option>
+            <option value="2025">2025/26 · Apr–Mar</option>
+          </select></label
+        >
+        <div class="toolbar-actions">
+          <button id="export" type="button">Export backup</button
+          ><button id="import" type="button">Import backup</button
+          ><input
+            id="import-file"
+            type="file"
+            accept=".json,application/json"
+            hidden
+          />
+        </div>
+      </section>
+      <p id="storage-status" role="status" class="storage-status"></p>
+      <p id="message" role="alert" hidden></p>
+      <details class="panel settings" open>
+        <summary>
+          Employee settings <span>Pay, working pattern &amp; pension</span>
+        </summary>
+        <form id="settings-form">
+          <div class="settings-grid">
+            <label
+              >Employee name<input
+                id="name"
+                name="name"
+                maxlength="80"
+                required
+            /></label>
+            <label
+              >Hourly rate (£)<input
+                id="rate"
+                name="rate"
+                type="number"
+                min="0"
+                max="10000"
+                step="0.01"
+                required
+            /></label>
+            <label
+              >Tax &amp; bank holiday region<select id="region" name="region">
+                <option value="england-and-wales">England &amp; Wales</option>
+                <option value="scotland">Scotland</option>
+                <option value="northern-ireland">Northern Ireland</option>
+              </select></label
+            >
+            <label
+              >NI category<select id="niCategory" name="niCategory">
+                <option value="A">A · Standard employee</option>
+                <option value="C">C · State pension age</option>
+                <option value="M">M · Under 21</option>
+                <option value="H">H · Apprentice under 25</option>
+              </select></label
+            >
+          </div>
+          <fieldset>
+            <legend>
+              Normal weekly hours <span>Set 0 for a non-working day</span>
+            </legend>
+            <div id="schedule" class="schedule"></div>
+          </fieldset>
+          <div class="settings-grid">
+            <label
+              >Annual leave budget (hours)<input
+                id="leaveHours"
+                name="leaveHours"
+                type="number"
+                min="0"
+                max="8784"
+                step="0.25"
+                required
+            /></label>
+            <label
+              >Pension method<select id="pensionMethod" name="pensionMethod">
+                <option value="off">No pension</option>
+                <option value="relief-at-source">Relief at source</option>
+                <option value="net-pay">Net pay arrangement</option>
+                <option value="salary-sacrifice">Salary sacrifice</option>
+              </select></label
+            >
+            <label
+              >Pension earnings basis<select
+                id="pensionBasis"
+                name="pensionBasis"
+              >
+                <option value="qualifying">Qualifying earnings</option>
+                <option value="all">All gross pay</option>
+              </select></label
+            >
+            <label
+              >Employee pension (% gross)<input
+                id="employeePercent"
+                name="employeePercent"
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                required
+            /></label>
+            <label
+              >Employer pension (%)<input
+                id="employerPercent"
+                name="employerPercent"
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                required
+            /></label>
+          </div>
+          <div class="checks">
+            <label
+              ><input id="bankPaid" name="bankPaid" type="checkbox" /> Pay
+              scheduled hours on bank holidays</label
+            ><label
+              ><input
+                id="bankInAllowance"
+                name="bankInAllowance"
+                type="checkbox"
+              />
+              Count paid bank holidays in the leave budget</label
+            >
+          </div>
+          <p class="hint">
+            Settings apply to this employee and selected year. Existing day
+            overrides stay in place. Leave year: 1 April–31 March; enter your
+            agreed budget in hours. All pay is hourly.
+          </p>
+          <div class="form-footer">
+            <button class="primary" type="submit">Save settings</button
+            ><button class="danger" id="delete-employee" type="button">
+              Remove employee
+            </button>
+          </div>
+        </form>
+      </details>
+      <section
+        id="year-summary"
+        class="summary-grid"
+        aria-label="Year totals"
+      ></section>
+      <p id="plan-warnings" class="hint"></p>
+      <section class="panel calendar-panel" aria-labelledby="calendar-title">
+        <div class="calendar-header">
+          <div>
+            <p class="eyebrow" id="employee-heading"></p>
+            <h2 id="calendar-title">Work calendar</h2>
+          </div>
+          <div class="month-navigation">
+            <button
+              id="previous-month"
+              type="button"
+              aria-label="Previous month"
+            >
+              ←</button
+            ><label class="sr-only" for="month">Month</label
+            ><select id="month"></select
+            ><button id="next-month" type="button" aria-label="Next month">
+              →
+            </button>
+          </div>
+        </div>
+        <p class="hint">
+          Select a day to edit work, annual leave or paid bank holiday hours.
+        </p>
+        <div class="legend">
+          <span><i class="work-dot"></i>Work</span
+          ><span><i class="leave-dot"></i>Annual leave</span
+          ><span><i class="bank-dot"></i>Bank holiday</span
+          ><span>• Edited day</span>
+        </div>
+        <div
+          id="calendar"
+          class="calendar"
+          role="group"
+          aria-label="Monthly work calendar"
+        ></div>
+        <div class="calendar-footer">
+          <p id="month-hours"></p>
+          <button id="reset-month" type="button">Reset this month</button>
+        </div>
+        <div
+          id="month-summary"
+          class="pay-grid"
+          aria-label="Monthly pay estimate"
+        ></div>
+      </section>
+      <section class="panel annual-panel" aria-labelledby="annual-title">
+        <div class="calendar-header">
+          <h2 id="annual-title">The year at a glance</h2>
+          <button id="export-csv" type="button">Export monthly CSV</button>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <caption class="sr-only">
+              Monthly estimates for the selected employee and payroll year
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Month</th>
+                <th scope="col">Paid hours</th>
+                <th scope="col">Gross pay</th>
+                <th scope="col">Est. take-home</th>
+                <th scope="col">Employer cost</th>
+              </tr>
+            </thead>
+            <tbody id="annual-rows"></tbody>
+          </table>
+        </div>
+      </section>
+      <details class="panel assumptions">
+        <summary>How these estimates work &amp; sources</summary>
+        <div>
+          <p>
+            Rates checked on <strong>15 October 2026</strong>. Verified payroll
+            years: 2025/26 and 2026/27. Rates do not update automatically;
+            future years must be verified before they are added.
+          </p>
+          <p>
+            Each calendar month is assumed to be paid in that month, on or after
+            6 April for the April payment. Income tax annualises each month's
+            taxable pay and divides the annual result by 12, using the standard
+            personal allowance and its taper above £100,000. This is a planning
+            estimate, not cumulative PAYE. Year totals sum those monthly
+            estimates; uneven earnings can produce different actual tax.
+          </p>
+          <p>
+            NI uses monthly thresholds and the selected category. Categories M
+            and H require eligibility throughout the modelled period; change
+            category if eligibility changes. Pension participation is selected
+            manually. Qualifying earnings use the monthly £520–£4,189 band. The
+            employee percentage is the gross pension contribution, including
+            basic tax relief under relief at source. Additional higher or
+            Scottish rate relief is not included. Salary sacrifice uses
+            pre-sacrifice pay as the pension basis and assumes no employer NI
+            saving is added to the pension.
+          </p>
+          <p>
+            Bank holidays use a bundled GOV.UK snapshot. They are paid only on
+            scheduled working days unless overridden. Annual leave and bank
+            holiday hours are separate, so changing work hours does not silently
+            book leave. Leave totals include all planned dates in this
+            April–March leave year. Reset only clears overrides in the selected
+            month. Updating the weekly pattern does not change the leave budget
+            automatically.
+          </p>
+          <p>
+            Estimates exclude student loans, non-standard tax codes, other
+            income, directors' NI, statutory sick or family pay, overtime
+            premiums, Employment Allowance and other employer reliefs.
+            Contractual holiday pay and salary sacrifice eligibility need
+            separate checks. This tool does not submit payroll to HMRC.
+          </p>
+          <p>
+            Data is saved in this browser on this device, without an account or
+            server sync. Use a JSON backup to move it elsewhere. CSV exports
+            contain summaries and cannot restore your calendar.
+          </p>
+          <ul>
+            <li>
+              <a
+                href="https://www.gov.uk/guidance/rates-and-thresholds-for-employers-2026-to-2027"
+                >HMRC rates 2026/27</a
+              >
+              ·
+              <a
+                href="https://www.gov.uk/guidance/rates-and-thresholds-for-employers-2025-to-2026"
+                >HMRC rates 2025/26</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://www.thepensionsregulator.gov.uk/en/business-advisers/automatic-enrolment-guide-for-business-advisers/automatic-enrolment-earnings-threshold"
+                >Pension earnings thresholds</a
+              >
+              ·
+              <a
+                href="https://www.gov.uk/workplace-pensions/managing-your-pension"
+                >Pension tax relief</a
+              >
+            </li>
+            <li>
+              <a href="https://www.gov.uk/bank-holidays">UK bank holidays</a> ·
+              <a href="https://www.gov.uk/holiday-entitlement-rights"
+                >Holiday entitlement</a
+              >
+            </li>
+          </ul>
+        </div>
+      </details>
+    </main>
+    <footer class="page-footer">
+      UK Salary &amp; Work Planner · Estimates for better planning
+    </footer>
+    <dialog id="day-dialog" aria-labelledby="day-title">
+      <form id="day-form">
+        <h2 id="day-title">Edit day</h2>
+        <p id="day-holiday" class="hint"></p>
+        <label
+          >Worked hours<input
+            id="day-work"
+            type="number"
+            min="0"
+            max="24"
+            step="0.25"
+            required /></label
+        ><label
+          >Paid annual leave hours<input
+            id="day-leave"
+            type="number"
+            min="0"
+            max="24"
+            step="0.25"
+            required /></label
+        ><label
+          >Paid bank holiday hours<input
+            id="day-bank"
+            type="number"
+            min="0"
+            max="24"
+            step="0.25"
+            required
+        /></label>
+        <p class="hint">
+          Use 0 in all fields for an unpaid day. For a half-day holiday, split
+          hours between work and annual leave.
+        </p>
+        <p id="day-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button class="primary" type="submit">Save day</button
+          ><button id="restore-day" type="button">Use normal pattern</button
+          ><button id="cancel-day" type="button">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
 </html>
