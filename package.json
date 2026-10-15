@@ -1,0 +1,11 @@
+{
+  "name": "uk-salary-work-planner",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Dependency-free UK hourly pay and leave planning tool",
+  "scripts": {
+    "test": "node --test calculator.test.js",
+    "check": "node --check calculator.js && node --check app.js && node --check bank-holidays.js",
+    "start": "python3 -m http.server 8080 --bind 127.0.0.1"
+  }
+}
